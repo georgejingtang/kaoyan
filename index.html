@@ -44,7 +44,15 @@
         .source-tag.wanxing { background: #d1fae5; color: #065f46; }
         .source-tag.xintixing { background: #fed7aa; color: #9a3412; }
         .source-tag.tigang { background: #fef3c7; color: #92400e; }
-        @media (max-width: 640px) { body { padding: 15px; } .card { padding: 18px; } .en { font-size: 17px; } }
+        .source-tag.listening { background: #e0f2fe; color: #0369a1; }
+        .source-tag.reading4 { background: #e0f2fe; color: #0369a1; }
+        .tabs { display: flex; gap: 12px; margin: 20px 0 15px 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 0; }
+        .tab-btn { padding: 8px 20px; font-size: 15px; font-weight: 600; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s; }
+        .tab-btn:hover { color: var(--primary-color); }
+        .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .tab-count { font-weight: normal; font-size: 13px; color: #94a3b8; margin-left: 4px; }
+        .tab-btn.active .tab-count { color: var(--primary-color); }
+        @media (max-width: 640px) { body { padding: 15px; } .card { padding: 18px; } .en { font-size: 17px; } .tabs { gap: 6px; } .tab-btn { padding: 6px 12px; font-size: 14px; } }
     </style>
 </head>
 <body>
@@ -54,15 +62,21 @@
     <input type="text" id="searchBox" placeholder="正在加载词库..." disabled autofocus>
     <div id="count" class="result-count">初始化中...</div>
 </div>
+<div id="tabsContainer" style="display:none;"></div>
 <div id="results"></div>
 
 <script>
+    // ==================== 数据源定义（考研 + 四级） ====================
     const JSON_FILES = [
-        { name: '1reading.json',         tag: '阅读',   tagClass: 'reading',   order: 1 },
-        { name: '2fanyi.json',           tag: '翻译',   tagClass: 'fanyi',     order: 2 },
-        { name: '3wanxing.json',         tag: '完型',   tagClass: 'wanxing',   order: 3 },
-        { name: '5xintixing.json',       tag: '新题型', tagClass: 'xintixing', order: 4 },
-        { name: '4tiganxuanxiang.json',  tag: '题干选项', tagClass: 'tigang',  order: 5 }
+        // 考研题库
+        { name: '1reading.json',         tag: '阅读',   tagClass: 'reading',   category: '考研', order: 1 },
+        { name: '2fanyi.json',           tag: '翻译',   tagClass: 'fanyi',     category: '考研', order: 2 },
+        { name: '3wanxing.json',         tag: '完型',   tagClass: 'wanxing',   category: '考研', order: 3 },
+        { name: '5xintixing.json',       tag: '新题型', tagClass: 'xintixing', category: '考研', order: 4 },
+        { name: '4tiganxuanxiang.json',  tag: '题干选项', tagClass: 'tigang',  category: '考研', order: 5 },
+        // 四级题库（新增）
+        { name: '四级听力.json',         tag: '听力',   tagClass: 'listening', category: '四级', order: 6 },
+        { name: '四级阅读.json',         tag: '阅读',   tagClass: 'reading4',  category: '四级', order: 7 }
     ];
 
     let corpus = [];
@@ -72,11 +86,10 @@
     const irregularPluralMap = new Map();
 
     let searchBox;
+    let currentCategory = '全部'; // '全部' | '考研' | '四级'
 
-    // ── [修复5] 统一使用这一个 escapeRegExp，删除 performSearch 中的内联重复写法 ──
+    // ── 工具函数 ──
     function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
-    // ── [修复2] XSS 防护：所有数据字段插入 HTML 前必须经过此函数转义 ──
     function escapeHtml(str) {
         if (!str) return '';
         return String(str)
@@ -87,9 +100,9 @@
             .replace(/'/g, '&#39;');
     }
 
+    // ── 词族映射（完整保留原有逻辑） ──
     function initMappings() {
         const spellingPairs = [
-            // -or / -our
             ['behavior','behaviour'],['color','colour'],['favor','favour'],
             ['honor','honour'],['neighbor','neighbour'],['labor','labour'],
             ['humor','humour'],['rumor','rumour'],['flavor','flavour'],
@@ -98,7 +111,6 @@
             ['splendor','splendour'],['glamor','glamour'],['armor','armour'],
             ['odor','odour'],['savor','savour'],['candor','candour'],
             ['fervor','fervour'],['valor','valour'],['demeanor','demeanour'],
-            // -ize / -ise
             ['organize','organise'],['realize','realise'],['analyze','analyse'],
             ['recognize','recognise'],['emphasize','emphasise'],['utilize','utilise'],
             ['maximize','maximise'],['minimize','minimise'],['optimize','optimise'],
@@ -125,26 +137,21 @@
             ['symbolize','symbolise'],['systematize','systematise'],
             ['fertilize','fertilise'],['initialize','initialise'],
             ['satirize','satirise'],['terrorize','terrorise'],
-            // -er / -re
             ['center','centre'],['theater','theatre'],['meter','metre'],
             ['fiber','fibre'],['liter','litre'],['caliber','calibre'],
             ['specter','spectre'],['saber','sabre'],['somber','sombre'],
             ['luster','lustre'],['maneuver','manoeuvre'],
-            // -ense / -ence  /  -ise / -ice
             ['defense','defence'],['offense','offence'],['license','licence'],
             ['practice','practise'],
-            // 单 l / 双 ll
             ['traveling','travelling'],['canceled','cancelled'],
             ['labeled','labelled'],['modeled','modelled'],
             ['signaled','signalled'],['leveled','levelled'],
             ['counselor','counsellor'],['enrollment','enrolment'],
             ['fulfill','fulfil'],['skillful','skilful'],
             ['willful','wilful'],['woolen','woollen'],
-            // -og / -ogue  &  -am / -amme
             ['catalog','catalogue'],['dialog','dialogue'],
             ['analog','analogue'],['program','programme'],
             ['monolog','monologue'],['prolog','prologue'],['epilog','epilogue'],
-            // 其他高频词
             ['gray','grey'],['skeptic','sceptic'],['aluminum','aluminium'],
             ['artifact','artefact'],['judgment','judgement'],
             ['mold','mould'],['sulfur','sulphur'],['tire','tyre'],
@@ -229,8 +236,6 @@
         if (lower.endsWith('es')) { roots.add(lower.slice(0, -1)); roots.add(lower.slice(0, -2)); }
         if (lower.endsWith('s') && !lower.endsWith('ss') && !lower.endsWith('us') && !lower.endsWith('is')) roots.add(lower.slice(0, -1));
 
-        // ── 修复：把美英拼写的对应词也加入 roots，让它也参与完整展开 ──
-        // 否则搜 "behavior" 时只有 "behaviour" 单词本身入族，"behaviours/behavioured" 等变形不会被生成
         const spellAlts = new Set();
         roots.forEach(r => { if (usUkSpellingMap.has(r)) spellAlts.add(usUkSpellingMap.get(r)); });
         spellAlts.forEach(r => roots.add(r));
@@ -255,16 +260,11 @@
     function hasChinese(text) { return /[\u4e00-\u9fa5]/.test(text); }
     function cleanEnglish(enText) { return (enText || '').replace(/\(\s*\d+\s*words\s*\)/gi, '').trim(); }
 
-    // ── [修复6] 仅在有高亮词族或需要点击功能时才包裹 span，减少无效 DOM ──
-    // 注意：这里接收的 text 已经是转义后的安全文本，但为正确处理 HTML 实体，
-    // makeWordsClickable 应在 escapeHtml 之前处理原始文本，最后再组合。
-    // 重构：先对原始文本做词语处理，输出带 span/mark 的 HTML 片段。
+    // ── 渲染高亮与点击（保留原逻辑） ──
     function makeWordsClickable(rawText, highlightFamily, isChineseSearch) {
         if (!rawText) return '';
-        // 按"英文单词 token"和"其余字符"分割，交替处理
         return rawText.replace(/([a-zA-Z]+(?:'[a-zA-Z]+)?(?:-[a-zA-Z]+)?)|([^a-zA-Z]+)/g, function(match, wordPart, nonWordPart) {
             if (nonWordPart !== undefined) {
-                // 非单词部分直接转义
                 return escapeHtml(nonWordPart);
             }
             const lowerMatch = wordPart.toLowerCase();
@@ -275,8 +275,6 @@
         });
     }
 
-    // 高亮函数：先在原始文本中用哨兵字符标记命中词，整体 escapeHtml 后再还原为 <mark> 标签
-    // \x00 / \x01 不是 HTML 特殊字符，escapeHtml 不会动它们，因此还原一定安全
     function highlightText(rawText, regex) {
         if (!rawText) return '';
         if (!regex) return escapeHtml(rawText);
@@ -286,22 +284,22 @@
             .replace(/\x01/g, '</mark>');
     }
 
+    // ── 核心搜索函数（按类别过滤） ──
     function performSearch() {
         const query = searchBox.value.trim();
         const resultsDiv = document.getElementById('results');
         if (query.length < 2) {
             resultsDiv.innerHTML = '';
             document.getElementById('count').innerText = query.length === 1 ? "请输入至少2个字符" : `共 ${corpus.length} 条记录`;
+            document.getElementById('tabsContainer').style.display = 'none';
             return;
         }
 
         const isChinese = hasChinese(query);
-        // ── [修复5] 统一用 escapeRegExp 函数，不再内联重复 ──
         const escapedQuery = escapeRegExp(query);
         const highlightFamily = new Set();
 
         let enHighlightRegex = null;
-        // ── [修复1] 英文搜索：纯字母时走词族逻辑，否则回退到简单子串匹配 ──
         const isPureAlpha = !isChinese && /^[a-zA-Z'-]+$/.test(query);
         if (isPureAlpha) {
             const family = getWordFamily(query);
@@ -313,47 +311,70 @@
         const cnFilterRegex = new RegExp(escapedQuery, 'i');
         const cnHighlightRegex = new RegExp(escapedQuery, 'gi');
 
-        const filtered = corpus.filter(item => {
+        // 先过滤出所有匹配项
+        const allFiltered = corpus.filter(item => {
             const target = [item.en, item.cn, item.en_q, item.cn_q, ...(item.en_opts || []), ...(item.cn_opts || [])].join(' ');
             if (isChinese) {
                 return cnFilterRegex.test(target);
             }
             if (isPureAlpha && enHighlightRegex) {
-                // 重置 lastIndex 防止有状态 regex 跨调用污染
                 enHighlightRegex.lastIndex = 0;
                 return enHighlightRegex.test(target);
             }
-            // ── [修复1] 非纯字母英文（如 COVID-19）：回退到简单子串匹配 ──
             return target.toLowerCase().includes(query.toLowerCase());
         });
-
-        // 每次过滤后 enHighlightRegex 的 lastIndex 可能不为 0，重置一下
         if (enHighlightRegex) enHighlightRegex.lastIndex = 0;
 
-        // ── [修复5] 排序改用纯字节比较，避免 localeCompare 跨浏览器差异 ──
-        const orderMap = { reading: 1, fanyi: 2, wanxing: 3, xintixing: 4, tigang: 5 };
+        // 按类别分组
+        const kaoyanResults = allFiltered.filter(item => item._category === '考研');
+        const cet4Results   = allFiltered.filter(item => item._category === '四级');
 
+        // 排序（原有排序逻辑）
+        const orderMap = { reading:1, fanyi:2, wanxing:3, xintixing:4, tigang:5, listening:6, reading4:7 };
         function extractNumber(id) {
             if (!id) return 0;
             const match = String(id).match(/\d+/);
             return match ? parseInt(match[0], 10) : 0;
         }
+        const sortFn = (a,b) => {
+            const oa = orderMap[a._sourceClass] || 999;
+            const ob = orderMap[b._sourceClass] || 999;
+            if (oa !== ob) return oa - ob;
+            const na = extractNumber(a.id);
+            const nb = extractNumber(b.id);
+            if (na !== nb) return na - nb;
+            return String(a.id || '') < String(b.id || '') ? -1 : 1;
+        };
+        kaoyanResults.sort(sortFn);
+        cet4Results.sort(sortFn);
 
-        filtered.sort((a, b) => {
-            const orderA = orderMap[a._sourceClass] || 999;
-            const orderB = orderMap[b._sourceClass] || 999;
-            if (orderA !== orderB) return orderA - orderB;
-            const numA = extractNumber(a.id);
-            const numB = extractNumber(b.id);
-            if (numA !== numB) return numA - numB;
-            // ── [修复5] 纯字节比较替代 localeCompare ──
-            const idA = String(a.id || '');
-            const idB = String(b.id || '');
-            return idA < idB ? -1 : idA > idB ? 1 : 0;
+        // 根据当前选中的类别决定显示哪些
+        let filtered = [];
+        if (currentCategory === '考研') filtered = kaoyanResults;
+        else if (currentCategory === '四级') filtered = cet4Results;
+        else filtered = allFiltered; // '全部'
+
+        // 更新选项卡计数
+        const tabsContainer = document.getElementById('tabsContainer');
+        tabsContainer.style.display = 'block';
+        tabsContainer.innerHTML = `
+            <div class="tabs">
+                <button class="tab-btn ${currentCategory === '全部' ? 'active' : ''}" data-cat="全部">全部 <span class="tab-count">(${allFiltered.length})</span></button>
+                <button class="tab-btn ${currentCategory === '考研' ? 'active' : ''}" data-cat="考研">考研题库 <span class="tab-count">(${kaoyanResults.length})</span></button>
+                <button class="tab-btn ${currentCategory === '四级' ? 'active' : ''}" data-cat="四级">四级题库 <span class="tab-count">(${cet4Results.length})</span></button>
+            </div>
+        `;
+        // 绑定选项卡点击事件
+        tabsContainer.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                currentCategory = this.dataset.cat;
+                performSearch(); // 重新搜索（保持输入框内容不变）
+            });
         });
 
-        document.getElementById('count').innerText = `找到 ${filtered.length} 个结果`;
+        document.getElementById('count').innerText = `找到 ${allFiltered.length} 个结果（考研 ${kaoyanResults.length}，四级 ${cet4Results.length}）`;
 
+        // 渲染词库标签（针对原查询词，不因分类而变）
         let html = '';
         if (!isChinese) {
             const q = query.toLowerCase();
@@ -385,10 +406,7 @@
         const cnHighlight = isChinese ? cnHighlightRegex : null;
 
         filtered.forEach(item => {
-            // ── [修复3] isComplex 同时检查 en_opts 非空数组 ──
             const isComplex = !!(item.en_q && Array.isArray(item.en_opts) && item.en_opts.length > 0);
-
-            // ── [修复4] display_id / id 插入 HTML 前先转义 ──
             const safeDisplayId = escapeHtml(item.display_id || item.id || '');
             const safeSourceClass = escapeHtml(item._sourceClass || '');
             const safeSourceTag = escapeHtml(item._sourceTag || '');
@@ -399,7 +417,6 @@
                 const enOpts = item.en_opts || [];
                 const cnOpts = item.cn_opts || [];
                 for (let i = 0; i < enOpts.length; i++) {
-                    // ── [修复4] cn_opts[i] 越界时安全回退为空字符串 ──
                     const cnOpt = (i < cnOpts.length) ? cnOpts[i] : '';
                     optsHtml += `<div>`
                         + `<span>${makeWordsClickable(enOpts[i], highlightFamily, isChinese)}</span>`
@@ -425,6 +442,7 @@
         resultsDiv.innerHTML = html;
     }
 
+    // ── 加载词库和JSON数据 ──
     async function loadTxt(file, set) {
         try {
             const res = await fetch(file);
@@ -441,23 +459,38 @@
         initMappings();
         searchBox = document.getElementById('searchBox');
         try {
-            await Promise.all([
-                ...JSON_FILES.map(async file => {
+            // 加载所有JSON文件
+            const loadPromises = JSON_FILES.map(async file => {
+                try {
                     const res = await fetch(file.name);
                     if (res.ok) {
                         const data = await res.json();
                         (Array.isArray(data) ? data : [data]).forEach(item => {
-                            item._sourceTag = file.tag; item._sourceClass = file.tagClass;
+                            item._sourceTag = file.tag;
+                            item._sourceClass = file.tagClass;
+                            item._category = file.category; // 新增分类标记
                             const m = (item.en || '').match(/\((\d+)\s*words\)/i);
                             item._wordCount = m ? m[1] : null;
                             corpus.push(item);
                         });
+                    } else {
+                        console.warn(`文件 ${file.name} 加载失败，状态码 ${res.status}`);
                     }
-                }),
-                loadTxt('大纲.txt', sets.vocabulary), loadTxt('1200.txt', sets.freq),
-                loadTxt('初中单词.txt', sets.middle), loadTxt('高中单词.txt', sets.high),
-                loadTxt('四级.txt', sets.cet4), loadTxt('六级.txt', sets.cet6)
-            ]);
+                } catch (e) {
+                    console.warn(`文件 ${file.name} 加载出错:`, e);
+                }
+            });
+            // 加载词库
+            const txtPromises = [
+                loadTxt('大纲.txt', sets.vocabulary),
+                loadTxt('1200.txt', sets.freq),
+                loadTxt('初中单词.txt', sets.middle),
+                loadTxt('高中单词.txt', sets.high),
+                loadTxt('四级.txt', sets.cet4),
+                loadTxt('六级.txt', sets.cet6)
+            ];
+            await Promise.all([...loadPromises, ...txtPromises]);
+
             searchBox.disabled = false;
             searchBox.placeholder = '请输入任意单词';
             document.getElementById('count').innerText = `✅ 加载成功，共 ${corpus.length} 条记录`;
@@ -466,6 +499,7 @@
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(performSearch, 300);
             });
+            // 点击单词搜索
             document.getElementById('results').addEventListener('click', e => {
                 const wordEl = e.target.closest('.clickable-word');
                 if (wordEl) {
@@ -474,7 +508,10 @@
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 }
             });
-        } catch (e) { document.getElementById('count').innerText = '❌ 加载失败，请刷新重试'; }
+        } catch (e) {
+            document.getElementById('count').innerText = '❌ 加载失败，请刷新重试';
+            console.error(e);
+        }
     }
     init();
 </script>
