@@ -46,6 +46,9 @@
         .source-tag.tigang { background: #fef3c7; color: #92400e; }
         .source-tag.listening { background: #e0f2fe; color: #0369a1; }
         .source-tag.reading4 { background: #e0f2fe; color: #0369a1; }
+        /* 六级新增样式 */
+        .source-tag.listening6 { background: #f3e5f5; color: #7b1fa2; }
+        .source-tag.reading6 { background: #f3e5f5; color: #7b1fa2; }
         .tabs { display: flex; gap: 12px; margin: 20px 0 15px 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 0; }
         .tab-btn { padding: 8px 20px; font-size: 15px; font-weight: 600; border: none; background: transparent; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s; }
         .tab-btn:hover { color: var(--primary-color); }
@@ -66,7 +69,7 @@
 <div id="results"></div>
 
 <script>
-    // ==================== 数据源定义（考研 + 四级） ====================
+    // ==================== 数据源定义（考研 + 四级 + 六级） ====================
     const JSON_FILES = [
         // 考研题库
         { name: '1reading.json',         tag: '阅读',   tagClass: 'reading',   category: '考研', order: 1 },
@@ -74,9 +77,12 @@
         { name: '3wanxing.json',         tag: '完型',   tagClass: 'wanxing',   category: '考研', order: 3 },
         { name: '5xintixing.json',       tag: '新题型', tagClass: 'xintixing', category: '考研', order: 4 },
         { name: '4tiganxuanxiang.json',  tag: '题干选项', tagClass: 'tigang',  category: '考研', order: 5 },
-        // 四级题库（新增）
+        // 四级题库
         { name: '四级听力.json',         tag: '听力',   tagClass: 'listening', category: '四级', order: 6 },
-        { name: '四级阅读.json',         tag: '阅读',   tagClass: 'reading4',  category: '四级', order: 7 }
+        { name: '四级阅读.json',         tag: '阅读',   tagClass: 'reading4',  category: '四级', order: 7 },
+        // 六级题库（新增）
+        { name: '六级听力.json',         tag: '听力',   tagClass: 'listening6', category: '六级', order: 8 },
+        { name: '六级阅读.json',         tag: '阅读',   tagClass: 'reading6',  category: '六级', order: 9 }
     ];
 
     let corpus = [];
@@ -86,7 +92,7 @@
     const irregularPluralMap = new Map();
 
     let searchBox;
-    let currentCategory = '全部'; // '全部' | '考研' | '四级'
+    let currentCategory = '全部'; // '全部' | '考研' | '四级' | '六级'
 
     // ── 工具函数 ──
     function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -284,7 +290,7 @@
             .replace(/\x01/g, '</mark>');
     }
 
-    // ── 核心搜索函数（按类别过滤） ──
+    // ── 核心搜索函数（按类别过滤，新增六级） ──
     function performSearch() {
         const query = searchBox.value.trim();
         const resultsDiv = document.getElementById('results');
@@ -325,12 +331,17 @@
         });
         if (enHighlightRegex) enHighlightRegex.lastIndex = 0;
 
-        // 按类别分组
+        // 按类别分组（考研 / 四级 / 六级）
         const kaoyanResults = allFiltered.filter(item => item._category === '考研');
         const cet4Results   = allFiltered.filter(item => item._category === '四级');
+        const cet6Results   = allFiltered.filter(item => item._category === '六级'); // 新增
 
-        // 排序（原有排序逻辑）
-        const orderMap = { reading:1, fanyi:2, wanxing:3, xintixing:4, tigang:5, listening:6, reading4:7 };
+        // 排序（原有排序逻辑，增加 listening6 / reading6 顺序）
+        const orderMap = {
+            reading:1, fanyi:2, wanxing:3, xintixing:4, tigang:5,
+            listening:6, reading4:7,
+            listening6:8, reading6:9   // 六级
+        };
         function extractNumber(id) {
             if (!id) return 0;
             const match = String(id).match(/\d+/);
@@ -347,11 +358,13 @@
         };
         kaoyanResults.sort(sortFn);
         cet4Results.sort(sortFn);
+        cet6Results.sort(sortFn);
 
         // 根据当前选中的类别决定显示哪些
         let filtered = [];
         if (currentCategory === '考研') filtered = kaoyanResults;
         else if (currentCategory === '四级') filtered = cet4Results;
+        else if (currentCategory === '六级') filtered = cet6Results;  // 新增
         else filtered = allFiltered; // '全部'
 
         // 更新选项卡计数
@@ -362,6 +375,7 @@
                 <button class="tab-btn ${currentCategory === '全部' ? 'active' : ''}" data-cat="全部">全部 <span class="tab-count">(${allFiltered.length})</span></button>
                 <button class="tab-btn ${currentCategory === '考研' ? 'active' : ''}" data-cat="考研">考研题库 <span class="tab-count">(${kaoyanResults.length})</span></button>
                 <button class="tab-btn ${currentCategory === '四级' ? 'active' : ''}" data-cat="四级">四级题库 <span class="tab-count">(${cet4Results.length})</span></button>
+                <button class="tab-btn ${currentCategory === '六级' ? 'active' : ''}" data-cat="六级">六级题库 <span class="tab-count">(${cet6Results.length})</span></button>
             </div>
         `;
         // 绑定选项卡点击事件
@@ -372,7 +386,7 @@
             });
         });
 
-        document.getElementById('count').innerText = `找到 ${allFiltered.length} 个结果（考研 ${kaoyanResults.length}，四级 ${cet4Results.length}）`;
+        document.getElementById('count').innerText = `找到 ${allFiltered.length} 个结果（考研 ${kaoyanResults.length}，四级 ${cet4Results.length}，六级 ${cet6Results.length}）`;
 
         // 渲染词库标签（针对原查询词，不因分类而变）
         let html = '';
